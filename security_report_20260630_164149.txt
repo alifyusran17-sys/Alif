@@ -1,0 +1,75 @@
+============================================
+  SECURITY AUDIT: 90twin.com
+  Tanggal: Tue Jun 30 16:41:49 UTC 2026
+============================================
+
+[1] DNS & IP INFO
+----------------------------
+
+IP Address:
+
+[2] SSL/TLS CERTIFICATE
+----------------------------
+        Issuer: O = Anthropic, CN = Egress Gateway SDS Issuing CA (production)
+            Not Before: Jun 30 16:40:49 2026 GMT
+            Not After : Jul 30 16:41:49 2026 GMT
+        Subject: CN = 90twin.com
+        Subject Public Key Info:
+            Public Key Algorithm: rsaEncryption
+                Public-Key: (2048 bit)
+            X509v3 Subject Alternative Name: 
+                DNS:90twin.com
+
+[2b] SSL/TLS VERSION & CIPHERS (nmap)
+nmap tidak ditemukan - skip cipher check
+
+[3] HTTP SECURITY HEADERS
+----------------------------
+HTTP/1.1 403 Forbidden
+Content-Length: 36
+
+
+[3b] SECURITY HEADER CHECKLIST:
+  [MISSING] Strict-Transport-Security
+  [MISSING] Content-Security-Policy
+  [MISSING] X-Frame-Options
+  [MISSING] X-Content-Type-Options
+  [MISSING] Referrer-Policy
+  [MISSING] Permissions-Policy
+  [MISSING] X-XSS-Protection
+
+[4] SENSITIVE FILES & PATHS
+----------------------------
+
+[5] CORS CONFIGURATION
+----------------------------
+  [INFO] Tidak ada CORS header (mungkin tidak diperlukan)
+
+[6] CLICKJACKING CHECK
+----------------------------
+  [VULN] Tidak ada X-Frame-Options atau CSP frame-ancestors - Rentan Clickjacking!
+
+[7] COOKIE SECURITY FLAGS
+----------------------------
+  [INFO] Tidak ada cookie yang ditemukan di response awal
+
+[8] SERVER INFORMATION DISCLOSURE
+----------------------------
+  [OK] Tidak ada server banner yang bocor
+
+[9] ALLOWED HTTP METHODS
+----------------------------
+  GET -> HTTP 000
+  POST -> HTTP 000
+  PUT -> HTTP 000
+  DELETE -> HTTP 000
+  PATCH -> HTTP 000
+  OPTIONS -> HTTP 000
+  TRACE -> HTTP 000
+
+[10] COMMON SUBDOMAINS
+----------------------------
+
+============================================
+  AUDIT SELESAI - Report: security_report_20260630_164149.txt
+============================================
