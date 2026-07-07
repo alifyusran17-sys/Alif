@@ -8,6 +8,7 @@ indicator("XAUUSD M5+M15 Confirmation Entry", overlay=true, max_labels_count=500
 // Konfirmasi: Engulfing atau Pin Bar searah bias
 // Filter    : ATR minimum + jam sesi London/NY
 // Pasang di chart M5. Bias diambil dari M15 via request.security.
+// Semua statement satu baris - tidak ada indented block.
 // ============================================================
 
 // ---------- Input ----------
@@ -72,23 +73,21 @@ inSess = not useSess or not na(time(timeframe.period, sessSpec))
 longSig = biasBull and pulledBack and bullConf and atrOk and inSess and barstate.isconfirmed
 shortSig = biasBear and pulledBack and bearConf and atrOk and inSess and barstate.isconfirmed
 
-// ---------- Hitung SL / TP ----------
+// ---------- Hitung SL / TP (ternary, tanpa if-block) ----------
+longSLcalc = low - slBufATR * atr
+longTPcalc = close + rrRatio * (close - longSLcalc)
+shortSLcalc = high + slBufATR * atr
+shortTPcalc = close - rrRatio * (shortSLcalc - close)
+
 var float entryPrice = na
 var float stopLoss = na
 var float takeProfit = na
 var int sigDir = 0
 
-if longSig
-    entryPrice := close
-    stopLoss := low - slBufATR * atr
-    takeProfit := entryPrice + rrRatio * (entryPrice - stopLoss)
-    sigDir := 1
-
-if shortSig
-    entryPrice := close
-    stopLoss := high + slBufATR * atr
-    takeProfit := entryPrice - rrRatio * (stopLoss - entryPrice)
-    sigDir := -1
+entryPrice := longSig or shortSig ? close : entryPrice
+stopLoss := longSig ? longSLcalc : shortSig ? shortSLcalc : stopLoss
+takeProfit := longSig ? longTPcalc : shortSig ? shortTPcalc : takeProfit
+sigDir := longSig ? 1 : shortSig ? -1 : sigDir
 
 // ---------- Plot ----------
 plot(emaPull, "EMA Pullback M5", color=color.new(color.orange, 0), linewidth=1)
@@ -104,9 +103,9 @@ plot(sigDir != 0 ? entryPrice : na, "Entry", color=color.yellow, style=plot.styl
 plot(sigDir != 0 ? stopLoss : na, "SL", color=color.red, style=plot.style_linebr, linewidth=1)
 plot(sigDir != 0 ? takeProfit : na, "TP", color=color.new(color.lime, 0), style=plot.style_linebr, linewidth=1)
 
-if longSig or shortSig
-    lbl = "Entry: " + str.tostring(entryPrice, format.mintick) + "\nSL: " + str.tostring(stopLoss, format.mintick) + "\nTP: " + str.tostring(takeProfit, format.mintick) + "\nRR 1:" + str.tostring(rrRatio, "#.##")
-    label.new(bar_index, longSig ? low : high, lbl, style=longSig ? label.style_label_up : label.style_label_down, color=longSig ? color.new(color.lime, 20) : color.new(color.red, 20), textcolor=color.white, size=size.small)
+// Label info (ternary trick agar tidak butuh if-block dengan indent)
+lblTxt = "Entry: " + str.tostring(entryPrice, format.mintick) + "\nSL: " + str.tostring(stopLoss, format.mintick) + "\nTP: " + str.tostring(takeProfit, format.mintick) + "\nRR 1:" + str.tostring(rrRatio, "#.##")
+lblId = longSig ? label.new(bar_index, low, lblTxt, style=label.style_label_up, color=color.new(color.lime, 20), textcolor=color.white, size=size.small) : shortSig ? label.new(bar_index, high, lblTxt, style=label.style_label_down, color=color.new(color.red, 20), textcolor=color.white, size=size.small) : na
 
 // ---------- Alert ----------
 alertcondition(longSig, title="XAUUSD LONG entry", message='{"symbol":"{{ticker}}","side":"LONG","tf":"{{interval}}","price":"{{close}}","time":"{{time}}"}')
