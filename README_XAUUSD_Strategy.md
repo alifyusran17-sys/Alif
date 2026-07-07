@@ -56,14 +56,92 @@ Semua bisa diubah dari panel setting indicator (klik ikon roda gigi):
 - **Sinyal palsu bisa muncul** saat news besar (NFP, FOMC, CPI). Pertimbangkan filter kalender.
 - **Broker spread & slippage** bisa mengubah RR real. Uji forward di akun demo dulu.
 
-## Kalau Mau Otomatisasi Lebih Jauh
+## Strategy Tester Version — `xauusd_m5m15_strategy.pine`
 
-Opsi lanjutan (bilang saja mana yang mau saya kerjakan):
+Versi `strategy()` untuk backtest di TradingView Strategy Tester.
 
-1. **Ubah jadi Strategy** — versi `strategy()` biar bisa backtest otomatis dengan
-   equity curve, win rate, max drawdown.
-2. **Webhook → Telegram bot** — alert TradingView diteruskan ke bot Telegram sendiri
-   biar formatnya custom, atau ke server yang eksekusi order via MT5/broker API.
-3. **Auto-execute** — sambungkan ke MT5 / cTrader via bridge (mis. TradingConnector,
-   AutoView). Ini butuh setup terpisah dan **berisiko tinggi** — hanya rekomendasikan
-   setelah backtest matang.
+**Cara pakai:**
+1. Buka Pine Editor → paste isi `xauusd_m5m15_strategy.pine` → **Save** → **Add to chart**.
+2. Buka tab **Strategy Tester** di bawah chart.
+3. Cek **Overview** (net profit, drawdown, win rate), **Performance Summary**, **List of Trades**.
+4. Tune input via ikon roda gigi indicator, jalankan ulang.
+
+**Tambahan dibanding versi indicator:**
+- Risk sizing otomatis — `Risk per trade (%)` menghitung `qty` dari equity & stop distance.
+- `strategy.exit` pasang OCO order SL + TP (RR ratio dari input).
+- Filter window backtest (`Backtest From/To`).
+- `commission_value` + `slippage` disetel supaya backtest lebih realistis untuk XAUUSD.
+- Setiap entry memicu `alert()` dengan JSON payload — kompatibel dengan Telegram bridge di bawah.
+
+## Webhook → Telegram Bot — `telegram_bridge/`
+
+Server Python kecil yang menerima webhook TradingView dan forward ke Telegram.
+
+**Arsitektur:**
+
+```
+TradingView Alert (Pro+)  --HTTPS POST-->  webhook_server.py  --Bot API-->  Telegram
+                             ?secret=…                          sendMessage      chat/channel
+```
+
+**Setup:**
+
+1. **Bikin Telegram bot**
+   - Chat `@BotFather` di Telegram → `/newbot` → catat **bot token**.
+   - Chat `@userinfobot` → catat **chat_id** Anda (atau id channel/group).
+
+2. **Deploy server** (contoh: Docker, Railway, Fly.io, VPS)
+   ```bash
+   cd telegram_bridge
+   cp .env.example .env      # isi TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, WEBHOOK_SECRET
+   docker build -t tv-bridge .
+   docker run -d --name tv-bridge --env-file .env -p 8080:8080 tv-bridge
+   ```
+   Atau tanpa Docker:
+   ```bash
+   pip install -r requirements.txt
+   export TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... WEBHOOK_SECRET=...
+   gunicorn -b 0.0.0.0:8080 webhook_server:app
+   ```
+   Server harus punya HTTPS URL publik (Cloudflare Tunnel / ngrok / hosting mana pun) —
+   TradingView tidak mau webhook ke IP mentah tanpa HTTPS.
+
+3. **Konfigurasi alert TradingView**
+   - Di dialog Alert → **Notifications** → centang **Webhook URL**:
+     ```
+     https://your-domain.com/webhook?secret=<WEBHOOK_SECRET yang sama>
+     ```
+   - **Message**: sudah otomatis dari `alert(...)` di indicator/strategy — JSON
+     seperti `{"symbol":"XAUUSD","side":"LONG","price":2345.6,"sl":2340.1,"tp":2356.6}`.
+   - Untuk versi indicator, ganti alert message dengan payload JSON tersebut manual.
+
+4. **Test**
+   ```bash
+   curl -X POST "https://your-domain.com/webhook?secret=..." \
+        -H "Content-Type: application/json" \
+        -d '{"symbol":"XAUUSD","side":"LONG","price":2345.6,"sl":2340.1,"tp":2356.6}'
+   ```
+   Anda akan menerima pesan di Telegram.
+
+**Fitur server:**
+- Validasi shared secret via `?secret=` atau header `X-Webhook-Secret` (constant-time compare).
+- Dedup 30 detik — kalau TradingView kirim ganda, hanya satu diteruskan.
+- Health check di `GET /health`.
+- Fallback ke raw text kalau payload bukan JSON.
+- Self-test: `python test_webhook.py`.
+
+**Peringatan keamanan:**
+- **Selalu pakai HTTPS** — token bot dan sinyal Anda kirim di dalamnya.
+- **Rotasi `WEBHOOK_SECRET`** kalau bocor.
+- Jangan commit file `.env` — sudah di-gitignore lewat pola default; tetap cek `git status` sebelum push.
+- Server ini **hanya** forward pesan. Untuk auto-execute order ke MT5/broker, butuh
+  bridge terpisah (misalnya python MetaTrader5 API atau AutoView) — tanya kalau mau
+  saya lanjutkan ke sana.
+
+## Opsi Lanjutan
+
+- **Auto-execute** ke MT5/cTrader (butuh bridge terpisah, **berisiko tinggi**, hanya
+  setelah backtest matang).
+- **Multi-symbol** — extend strategy untuk pantau XAUUSD + XAGUSD + BTCUSD simultan.
+- **News filter** — integrasi kalender ekonomi (Forex Factory RSS) untuk skip jam news.
+- **Trailing stop** — SL geser ikut harga setelah profit tertentu.

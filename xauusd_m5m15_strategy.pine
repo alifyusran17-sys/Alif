@@ -1,0 +1,131 @@
+//@version=5
+strategy("XAUUSD M5+M15 Confirmation Strategy",
+     overlay            = true,
+     initial_capital    = 10000,
+     default_qty_type   = strategy.percent_of_equity,
+     default_qty_value  = 2,        // risk sizing dihitung ulang di bawah
+     commission_type    = strategy.commission.percent,
+     commission_value   = 0.003,    // ~ spread XAUUSD retail
+     slippage           = 2,
+     pyramiding         = 0,
+     process_orders_on_close = true,
+     calc_on_every_tick = false)
+
+// ============================================================
+// Strategy tester version of the M5+M15 confirmation entry.
+// Same logika sinyal seperti indicator; ditambah entry/exit
+// order untuk backtest (equity, win rate, drawdown).
+// Pasang di chart M5 XAUUSD, buka tab "Strategy Tester".
+// ============================================================
+
+// ---------- Input ----------
+grpBias   = "Bias (M15)"
+emaFastLen = input.int(50,  "EMA Fast (M15)",  minval=5,  group=grpBias)
+emaSlowLen = input.int(200, "EMA Slow (M15)",  minval=20, group=grpBias)
+
+grpEntry  = "Entry (M5)"
+emaPullLen = input.int(20,  "EMA Pullback (M5)", minval=5, group=grpEntry)
+pullbackTolATR = input.float(0.5, "Toleransi pullback (x ATR)", minval=0.1, step=0.1, group=grpEntry)
+
+grpConf   = "Candle Konfirmasi"
+useEngulf = input.bool(true, "Bullish/Bearish Engulfing", group=grpConf)
+usePin    = input.bool(true, "Pin Bar (wick >= 2x body)",  group=grpConf)
+pinRatio  = input.float(2.0, "Rasio wick/body pin bar",    minval=1.5, step=0.1, group=grpConf)
+
+grpRisk   = "Risk / Reward"
+atrLen    = input.int(14,   "ATR Length", minval=5, group=grpRisk)
+slBufATR  = input.float(0.3, "Buffer SL (x ATR)", minval=0.0, step=0.1, group=grpRisk)
+rrRatio   = input.float(2.0, "Risk : Reward",     minval=0.5, step=0.1, group=grpRisk)
+minAtrPips = input.float(1.5, "ATR Minimum (USD)", minval=0.0, step=0.1, group=grpRisk)
+riskPct    = input.float(1.0, "Risk per trade (% equity)", minval=0.1, step=0.1, group=grpRisk,
+     tooltip="Ukuran posisi dihitung supaya loss di SL = riskPct * equity.")
+
+grpSess   = "Filter Sesi"
+useSess   = input.bool(true, "Aktifkan filter sesi London + NY", group=grpSess)
+sessSpec  = input.session("1300-2359", "Sesi aktif (waktu chart)", group=grpSess)
+
+grpBt     = "Backtest Window"
+btFrom    = input.time(timestamp("2024-01-01 00:00"), "Backtest From", group=grpBt)
+btTo      = input.time(timestamp("2030-01-01 00:00"), "Backtest To",   group=grpBt)
+
+// ---------- Data M15 ----------
+[emaFast15, emaSlow15] = request.security(syminfo.tickerid, "15",
+     [ta.ema(close, emaFastLen), ta.ema(close, emaSlowLen)],
+     lookahead=barmerge.lookahead_off)
+
+biasBull = emaFast15 > emaSlow15 and close > emaFast15
+biasBear = emaFast15 < emaSlow15 and close < emaFast15
+
+// ---------- Data M5 ----------
+emaPull = ta.ema(close, emaPullLen)
+atr     = ta.atr(atrLen)
+
+touchedFromAbove = low  <= emaPull + pullbackTolATR * atr and low  >= emaPull - pullbackTolATR * atr
+touchedFromBelow = high >= emaPull - pullbackTolATR * atr and high <= emaPull + pullbackTolATR * atr
+
+pulledBack = touchedFromAbove or touchedFromBelow or
+   (low[1]  <= emaPull[1] + pullbackTolATR * atr[1] and low[1]  >= emaPull[1] - pullbackTolATR * atr[1]) or
+   (high[1] >= emaPull[1] - pullbackTolATR * atr[1] and high[1] <= emaPull[1] + pullbackTolATR * atr[1])
+
+// ---------- Candle konfirmasi ----------
+bodyHi = math.max(open, close)
+bodyLo = math.min(open, close)
+body   = bodyHi - bodyLo
+upperWick = high - bodyHi
+lowerWick = bodyLo - low
+
+bullEngulf = useEngulf and close > open and close[1] < open[1]
+     and close >= open[1] and open <= close[1] and body > body[1]
+bearEngulf = useEngulf and close < open and close[1] > open[1]
+     and close <= open[1] and open >= close[1] and body > body[1]
+
+bullPin = usePin and body > 0 and lowerWick >= pinRatio * body and upperWick <= body and close > open
+bearPin = usePin and body > 0 and upperWick >= pinRatio * body and lowerWick <= body and close < open
+
+bullConf = bullEngulf or bullPin
+bearConf = bearEngulf or bearPin
+
+// ---------- Filter ----------
+atrOk  = atr >= minAtrPips
+inSess = not useSess or not na(time(timeframe.period, sessSpec))
+inWindow = time >= btFrom and time <= btTo
+
+longSig  = biasBull and pulledBack and bullConf and atrOk and inSess and inWindow
+shortSig = biasBear and pulledBack and bearConf and atrOk and inSess and inWindow
+
+// ---------- Hitung SL / TP / Size ----------
+longSL  = low  - slBufATR * atr
+longTP  = close + rrRatio * (close - longSL)
+shortSL = high + slBufATR * atr
+shortTP = close - rrRatio * (shortSL - close)
+
+// Position size = risk$ / stopDistance$ per unit
+riskDollar = strategy.equity * riskPct / 100
+longStopDist  = math.max(close - longSL,  syminfo.mintick)
+shortStopDist = math.max(shortSL - close, syminfo.mintick)
+longQty  = riskDollar / longStopDist
+shortQty = riskDollar / shortStopDist
+
+// ---------- Execute ----------
+if longSig and strategy.position_size == 0
+    strategy.entry("LONG", strategy.long, qty=longQty)
+    strategy.exit("L-Exit", from_entry="LONG", stop=longSL, limit=longTP)
+    alert('{"symbol":"' + syminfo.ticker + '","side":"LONG","price":' + str.tostring(close) +
+       ',"sl":' + str.tostring(longSL) + ',"tp":' + str.tostring(longTP) + '}',
+       alert.freq_once_per_bar_close)
+
+if shortSig and strategy.position_size == 0
+    strategy.entry("SHORT", strategy.short, qty=shortQty)
+    strategy.exit("S-Exit", from_entry="SHORT", stop=shortSL, limit=shortTP)
+    alert('{"symbol":"' + syminfo.ticker + '","side":"SHORT","price":' + str.tostring(close) +
+       ',"sl":' + str.tostring(shortSL) + ',"tp":' + str.tostring(shortTP) + '}',
+       alert.freq_once_per_bar_close)
+
+// ---------- Plot ----------
+plot(emaPull,   "EMA Pullback M5", color=color.new(color.orange, 0))
+plot(emaFast15, "EMA50 M15",       color=color.new(color.aqua,   0), linewidth=2)
+plot(emaSlow15, "EMA200 M15",      color=color.new(color.fuchsia,0), linewidth=2)
+bgcolor(biasBull ? color.new(color.green,92) : biasBear ? color.new(color.red,92) : na)
+
+plotshape(longSig,  "LONG",  location.belowbar, shape.triangleup,   color=color.lime, size=size.small)
+plotshape(shortSig, "SHORT", location.abovebar, shape.triangledown, color=color.red,  size=size.small)
