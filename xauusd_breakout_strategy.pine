@@ -1,0 +1,120 @@
+//@version=6
+strategy("XAUUSD Breakout Strategy", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=2, commission_type=strategy.commission.percent, commission_value=0.003, slippage=2, pyramiding=0, process_orders_on_close=true, calc_on_every_tick=false)
+
+// ============================================================
+// XAUUSD Breakout Strategy
+// Konsep: entry saat harga break high/low N bar terakhir dengan
+//         candle momentum kuat, searah bias higher-timeframe.
+// Cocok untuk market trending (XAUUSD news-driven yang dumping/pumping).
+// Pasang di chart 15m atau 30m. Bias TF & EMA bisa di-tune via input.
+// ============================================================
+
+// ---------- Input ----------
+grpRange = "Range Breakout"
+lookback = input.int(20, "Range Lookback (bars)", minval=5, group=grpRange, tooltip="Break high/low dari N bar sebelumnya")
+minBodyPct = input.float(0.6, "Min Body %", minval=0.1, maxval=1.0, step=0.05, group=grpRange, tooltip="Candle body >= 60% dari total range = momentum kuat")
+
+grpBias = "Higher Timeframe Bias"
+biasTF = input.timeframe("240", "Bias Timeframe", group=grpBias, tooltip="H4=240, H1=60, D1=D. Filter: LONG hanya jika harga di atas EMA bias, SHORT sebaliknya.")
+biasEMALen = input.int(100, "Bias EMA Length", minval=20, group=grpBias)
+
+grpRisk = "Risk / Reward"
+atrLen = input.int(14, "ATR Length", minval=5, group=grpRisk)
+slBufATR = input.float(0.5, "Buffer SL (x ATR)", minval=0.0, step=0.1, group=grpRisk)
+rrRatio = input.float(2.0, "Risk : Reward", minval=0.5, step=0.1, group=grpRisk)
+minAtrPips = input.float(4.0, "ATR Minimum (USD)", minval=0.0, step=0.5, group=grpRisk)
+riskPct = input.float(1.0, "Risk per trade (% equity)", minval=0.1, step=0.1, group=grpRisk)
+
+grpCool = "Filter Tambahan"
+cooldownBars = input.int(10, "Cooldown setelah exit (bars)", minval=0, group=grpCool, tooltip="Skip N bar setelah trade tutup, hindari re-entry langsung")
+useSess = input.bool(false, "Filter sesi (default OFF untuk breakout)", group=grpCool)
+sessSpec = input.session("1300-2359", "Sesi aktif", group=grpCool)
+
+grpBt = "Backtest Window"
+btFrom = input.time(timestamp("2024-01-01 00:00"), "Backtest From", group=grpBt)
+btTo = input.time(timestamp("2030-01-01 00:00"), "Backtest To", group=grpBt)
+
+// ---------- Higher Timeframe Bias ----------
+biasEMAval = request.security(syminfo.tickerid, biasTF, ta.ema(close, biasEMALen), lookahead=barmerge.lookahead_off)
+biasBull = close > biasEMAval
+biasBear = close < biasEMAval
+
+// ---------- Range Detection ----------
+// Highest/lowest dari N bar SEBELUMNYA (exclude current bar)
+prevHigh = ta.highest(high[1], lookback)
+prevLow = ta.lowest(low[1], lookback)
+
+// ---------- Candle Momentum ----------
+bodySize = math.abs(close - open)
+candleRange = high - low
+bodyPct = candleRange > 0 ? bodySize / candleRange : 0
+strongBody = bodyPct >= minBodyPct
+
+// ---------- ATR & Filter ----------
+atr = ta.atr(atrLen)
+atrOk = atr >= minAtrPips
+inSess = not useSess or not na(time(timeframe.period, sessSpec))
+inWindow = time >= btFrom and time <= btTo
+
+// ---------- Breakout Detection ----------
+breakoutUp = close > prevHigh and close > open and strongBody
+breakoutDown = close < prevLow and close < open and strongBody
+
+longSig = breakoutUp and biasBull and atrOk and inSess and inWindow
+shortSig = breakoutDown and biasBear and atrOk and inSess and inWindow
+
+// ---------- Cooldown after exit ----------
+var int lastExitBar = -1000
+justExited = strategy.position_size[1] != 0 and strategy.position_size == 0
+lastExitBar := justExited ? bar_index : lastExitBar
+cooldownOk = bar_index - lastExitBar >= cooldownBars
+
+// ---------- SL / TP / Size ----------
+longSLcalc = prevLow - slBufATR * atr
+shortSLcalc = prevHigh + slBufATR * atr
+longTPcalc = close + rrRatio * (close - longSLcalc)
+shortTPcalc = close - rrRatio * (shortSLcalc - close)
+
+riskDollar = strategy.equity * riskPct / 100
+longStopDist = math.max(close - longSLcalc, syminfo.mintick)
+shortStopDist = math.max(shortSLcalc - close, syminfo.mintick)
+longQty = riskDollar / longStopDist
+shortQty = riskDollar / shortStopDist
+
+longEntryCond = longSig and cooldownOk and strategy.position_size == 0
+shortEntryCond = shortSig and cooldownOk and strategy.position_size == 0
+
+// ---------- Simpan SL/TP saat sinyal ----------
+var float longSL = na
+var float longTP = na
+var float shortSL = na
+var float shortTP = na
+
+longSL := longEntryCond ? longSLcalc : longSL
+longTP := longEntryCond ? longTPcalc : longTP
+shortSL := shortEntryCond ? shortSLcalc : shortSL
+shortTP := shortEntryCond ? shortTPcalc : shortTP
+
+// ---------- Entry & Exit ----------
+if longEntryCond
+    strategy.entry("LONG", strategy.long, qty=longQty)
+
+if shortEntryCond
+    strategy.entry("SHORT", strategy.short, qty=shortQty)
+
+strategy.exit("L-Exit", from_entry="LONG", stop=longSL, limit=longTP)
+strategy.exit("S-Exit", from_entry="SHORT", stop=shortSL, limit=shortTP)
+
+// ---------- Plot ----------
+plot(prevHigh, "Range High", color=color.new(color.aqua, 40), linewidth=1)
+plot(prevLow, "Range Low", color=color.new(color.orange, 40), linewidth=1)
+plot(biasEMAval, "Bias EMA", color=color.new(color.fuchsia, 0), linewidth=2)
+
+bgcolor(biasBull ? color.new(color.green, 92) : biasBear ? color.new(color.red, 92) : na)
+
+plotshape(longSig, title="LONG Breakout", location=location.belowbar, style=shape.triangleup, color=color.lime, size=size.small)
+plotshape(shortSig, title="SHORT Breakout", location=location.abovebar, style=shape.triangledown, color=color.red, size=size.small)
+
+// ---------- Alert ----------
+alertcondition(longEntryCond, title="XAUUSD LONG breakout", message='{"symbol":"{{ticker}}","side":"LONG","tf":"{{interval}}","price":"{{close}}"}')
+alertcondition(shortEntryCond, title="XAUUSD SHORT breakout", message='{"symbol":"{{ticker}}","side":"SHORT","tf":"{{interval}}","price":"{{close}}"}')
