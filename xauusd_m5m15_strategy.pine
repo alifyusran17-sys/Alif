@@ -4,6 +4,7 @@ strategy("XAUUSD M5+M15 Confirmation Strategy", overlay=true, initial_capital=10
 // ============================================================
 // Strategy tester version untuk backtest di TradingView.
 // Pasang di chart M5 XAUUSD, buka tab "Strategy Tester".
+// Setiap if-block hanya isi 1 baris (tahan paste HP).
 // ============================================================
 
 // ---------- Input ----------
@@ -74,27 +75,41 @@ longSig = biasBull and pulledBack and bullConf and atrOk and inSess and inWindow
 shortSig = biasBear and pulledBack and bearConf and atrOk and inSess and inWindow
 
 // ---------- Hitung SL / TP / Size ----------
-longSL = low - slBufATR * atr
-longTP = close + rrRatio * (close - longSL)
-shortSL = high + slBufATR * atr
-shortTP = close - rrRatio * (shortSL - close)
+longSLcalc = low - slBufATR * atr
+longTPcalc = close + rrRatio * (close - longSLcalc)
+shortSLcalc = high + slBufATR * atr
+shortTPcalc = close - rrRatio * (shortSLcalc - close)
 
 riskDollar = strategy.equity * riskPct / 100
-longStopDist = math.max(close - longSL, syminfo.mintick)
-shortStopDist = math.max(shortSL - close, syminfo.mintick)
+longStopDist = math.max(close - longSLcalc, syminfo.mintick)
+shortStopDist = math.max(shortSLcalc - close, syminfo.mintick)
 longQty = riskDollar / longStopDist
 shortQty = riskDollar / shortStopDist
 
-// ---------- Execute ----------
-if longSig and strategy.position_size == 0
-    strategy.entry("LONG", strategy.long, qty=longQty)
-    strategy.exit("L-Exit", from_entry="LONG", stop=longSL, limit=longTP)
-    alert('{"symbol":"' + syminfo.ticker + '","side":"LONG","price":' + str.tostring(close) + ',"sl":' + str.tostring(longSL) + ',"tp":' + str.tostring(longTP) + '}', alert.freq_once_per_bar_close)
+// ---------- Simpan SL/TP saat sinyal (ternary, no if-block) ----------
+var float longSL = na
+var float longTP = na
+var float shortSL = na
+var float shortTP = na
 
-if shortSig and strategy.position_size == 0
+longEntryCond = longSig and strategy.position_size == 0
+shortEntryCond = shortSig and strategy.position_size == 0
+
+longSL := longEntryCond ? longSLcalc : longSL
+longTP := longEntryCond ? longTPcalc : longTP
+shortSL := shortEntryCond ? shortSLcalc : shortSL
+shortTP := shortEntryCond ? shortTPcalc : shortTP
+
+// ---------- Execute: setiap if-block cuma 1 baris ----------
+if longEntryCond
+    strategy.entry("LONG", strategy.long, qty=longQty)
+
+if shortEntryCond
     strategy.entry("SHORT", strategy.short, qty=shortQty)
-    strategy.exit("S-Exit", from_entry="SHORT", stop=shortSL, limit=shortTP)
-    alert('{"symbol":"' + syminfo.ticker + '","side":"SHORT","price":' + str.tostring(close) + ',"sl":' + str.tostring(shortSL) + ',"tp":' + str.tostring(shortTP) + '}', alert.freq_once_per_bar_close)
+
+// Exit orders di top-level (tidak dalam if-block, aktif tiap bar)
+strategy.exit("L-Exit", from_entry="LONG", stop=longSL, limit=longTP)
+strategy.exit("S-Exit", from_entry="SHORT", stop=shortSL, limit=shortTP)
 
 // ---------- Plot ----------
 plot(emaPull, "EMA Pullback M5", color=color.new(color.orange, 0))
@@ -104,3 +119,7 @@ bgcolor(biasBull ? color.new(color.green, 92) : biasBear ? color.new(color.red, 
 
 plotshape(longSig, "LONG", location.belowbar, shape.triangleup, color=color.lime, size=size.small)
 plotshape(shortSig, "SHORT", location.abovebar, shape.triangledown, color=color.red, size=size.small)
+
+// ---------- Alert ----------
+alertcondition(longEntryCond, title="XAUUSD LONG entry", message='{"symbol":"{{ticker}}","side":"LONG","tf":"{{interval}}","price":"{{close}}"}')
+alertcondition(shortEntryCond, title="XAUUSD SHORT entry", message='{"symbol":"{{ticker}}","side":"SHORT","tf":"{{interval}}","price":"{{close}}"}')
