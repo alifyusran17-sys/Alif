@@ -113,8 +113,8 @@ plot(emaFast15, "EMA50 M15", color=color.new(color.aqua, 0), linewidth=2)
 plot(emaSlow15, "EMA200 M15", color=color.new(color.fuchsia, 0), linewidth=2)
 bgcolor(biasBull ? color.new(color.green, 92) : biasBear ? color.new(color.red, 92) : na)
 
-plotshape(longSig, "LONG", location.belowbar, shape.triangleup, color=color.lime, size=size.small)
-plotshape(shortSig, "SHORT", location.abovebar, shape.triangledown, color=color.red, size=size.small)
+plotshape(longSig, title="LONG", location=location.belowbar, style=shape.triangleup, color=color.lime, size=size.small)
+plotshape(shortSig, title="SHORT", location=location.abovebar, style=shape.triangledown, color=color.red, size=size.small)
 
 // ---------- Alert ----------
 alertcondition(longEntryCond, title="XAUUSD LONG entry", message='{"symbol":"{{ticker}}","side":"LONG","tf":"{{interval}}","price":"{{close}}"}')
