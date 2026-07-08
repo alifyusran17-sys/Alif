@@ -1,0 +1,132 @@
+//@version=6
+indicator("XAUUSD Candlestick Patterns", overlay=true, max_labels_count=500)
+
+// ============================================================
+// Educational indicator: highlight 10 pattern candlestick populer
+// Tidak ada logic entry — hanya display untuk belajar mata.
+// Pasang berdampingan dengan Breakout+ADX untuk konfirmasi visual.
+// ============================================================
+
+// ---------- Inputs: pilih pattern yang mau di-detect ----------
+grp1 = "Single Candle Patterns"
+useDoji = input.bool(true, "Doji", group=grp1, tooltip="Body <10% range. Keraguan pasar / potensi reversal.")
+useHammer = input.bool(true, "Hammer (Bullish Pin Bar)", group=grp1, tooltip="Wick bawah >=2x body, wick atas kecil. Reversal bullish di bottom.")
+useShootingStar = input.bool(true, "Shooting Star (Bearish Pin Bar)", group=grp1, tooltip="Wick atas >=2x body, wick bawah kecil. Reversal bearish di top.")
+useMarubozu = input.bool(false, "Marubozu (candle super kuat)", group=grp1, tooltip="Body >=95% range, wick sangat tipis. Momentum ekstrim.")
+
+grp2 = "Two Candle Patterns"
+useEngulfing = input.bool(true, "Bullish/Bearish Engulfing", group=grp2, tooltip="Candle sekarang telan body candle sebelumnya. Reversal kuat.")
+useInsideBar = input.bool(false, "Inside Bar", group=grp2, tooltip="Range candle sekarang di dalam range candle sebelumnya. Konsolidasi.")
+
+grp3 = "Three Candle Patterns"
+useThreeSoldiers = input.bool(true, "Three White Soldiers", group=grp3, tooltip="3 candle bullish kuat berturut-turut. Trend bullish kuat.")
+useThreeCrows = input.bool(true, "Three Black Crows", group=grp3, tooltip="3 candle bearish kuat berturut-turut. Trend bearish kuat.")
+useMorningStar = input.bool(true, "Morning Star", group=grp3, tooltip="Bearish besar > candle kecil > bullish besar. Reversal bullish.")
+useEveningStar = input.bool(true, "Evening Star", group=grp3, tooltip="Bullish besar > candle kecil > bearish besar. Reversal bearish.")
+
+grp4 = "Tampilan"
+labelSize = input.string("small", "Ukuran Label", options=["tiny", "small", "normal", "large"], group=grp4)
+showBullBg = input.bool(false, "Background hijau saat pattern bullish", group=grp4)
+showBearBg = input.bool(false, "Background merah saat pattern bearish", group=grp4)
+
+// ---------- Helper Values ----------
+bodyHi = math.max(open, close)
+bodyLo = math.min(open, close)
+body = bodyHi - bodyLo
+candleRange = high - low
+upperWick = high - bodyHi
+lowerWick = bodyLo - low
+bodyPct = candleRange > 0 ? body / candleRange : 0.0
+isBullCandle = close > open
+isBearCandle = close < open
+
+// Body% dari candle sebelumnya
+body1 = math.abs(close[1] - open[1])
+range1 = high[1] - low[1]
+bodyPct1 = range1 > 0 ? body1 / range1 : 0.0
+
+body2 = math.abs(close[2] - open[2])
+range2 = high[2] - low[2]
+bodyPct2 = range2 > 0 ? body2 / range2 : 0.0
+
+// ---------- Pattern Detection ----------
+
+// 1. Doji: body sangat kecil
+doji = useDoji and bodyPct < 0.1 and candleRange > 0
+
+// 2. Hammer: wick bawah panjang, body kecil di atas
+hammer = useHammer and body > 0 and lowerWick >= 2 * body and upperWick <= body
+
+// 3. Shooting Star: wick atas panjang, body kecil di bawah
+shootingStar = useShootingStar and body > 0 and upperWick >= 2 * body and lowerWick <= body
+
+// 4. Marubozu: body dominan (>=95% range)
+marubozuBull = useMarubozu and isBullCandle and bodyPct >= 0.95
+marubozuBear = useMarubozu and isBearCandle and bodyPct >= 0.95
+
+// 5. Bullish/Bearish Engulfing
+bullEngulf = useEngulfing and isBullCandle and close[1] < open[1] and close >= open[1] and open <= close[1] and body > body1
+bearEngulf = useEngulfing and isBearCandle and close[1] > open[1] and close <= open[1] and open >= close[1] and body > body1
+
+// 6. Inside Bar: range di dalam range sebelumnya
+insideBar = useInsideBar and high < high[1] and low > low[1]
+
+// 7. Three White Soldiers: 3 bullish kuat berturut-turut, tiap candle open dalam body sebelumnya, close makin tinggi
+threeSoldiers = useThreeSoldiers and isBullCandle and close[1] > open[1] and close[2] > open[2] and close > close[1] and close[1] > close[2] and open > open[1] and open[1] > open[2] and open < close[1] and open[1] < close[2] and bodyPct >= 0.6 and bodyPct1 >= 0.6 and bodyPct2 >= 0.6
+
+// 8. Three Black Crows: kebalikan
+threeCrows = useThreeCrows and isBearCandle and close[1] < open[1] and close[2] < open[2] and close < close[1] and close[1] < close[2] and open < open[1] and open[1] < open[2] and open > close[1] and open[1] > close[2] and bodyPct >= 0.6 and bodyPct1 >= 0.6 and bodyPct2 >= 0.6
+
+// 9. Morning Star: bearish besar -> kecil -> bullish besar, close di atas mid bar[2]
+morningStar = useMorningStar and close[2] < open[2] and bodyPct2 >= 0.6 and body1 < body2 * 0.5 and isBullCandle and bodyPct >= 0.5 and close > (open[2] + close[2]) / 2
+
+// 10. Evening Star: bullish besar -> kecil -> bearish besar, close di bawah mid bar[2]
+eveningStar = useEveningStar and close[2] > open[2] and bodyPct2 >= 0.6 and body1 < body2 * 0.5 and isBearCandle and bodyPct >= 0.5 and close < (open[2] + close[2]) / 2
+
+// ---------- Label Style ----------
+lblSize = labelSize == "tiny" ? size.tiny : labelSize == "small" ? size.small : labelSize == "large" ? size.large : size.normal
+
+// ---------- Plot Labels (via ternary — no if-block) ----------
+confirmed = barstate.isconfirmed
+
+// Doji - kuning
+_lblDoji = doji and confirmed ? label.new(bar_index, high, "Doji", style=label.style_label_down, color=color.new(color.yellow, 30), textcolor=color.black, size=lblSize) : na
+
+// Hammer - hijau bawah
+_lblHammer = hammer and confirmed ? label.new(bar_index, low, "Hammer", style=label.style_label_up, color=color.new(color.lime, 30), textcolor=color.white, size=lblSize) : na
+
+// Shooting Star - merah atas
+_lblShoot = shootingStar and confirmed ? label.new(bar_index, high, "Shoot Star", style=label.style_label_down, color=color.new(color.red, 30), textcolor=color.white, size=lblSize) : na
+
+// Marubozu
+_lblMaruBull = marubozuBull and confirmed ? label.new(bar_index, low, "Marubozu+", style=label.style_label_up, color=color.new(color.green, 20), textcolor=color.white, size=lblSize) : na
+_lblMaruBear = marubozuBear and confirmed ? label.new(bar_index, high, "Marubozu-", style=label.style_label_down, color=color.new(color.maroon, 20), textcolor=color.white, size=lblSize) : na
+
+// Engulfing
+_lblBullEng = bullEngulf and confirmed ? label.new(bar_index, low, "Bull Engulf", style=label.style_label_up, color=color.new(color.green, 20), textcolor=color.white, size=lblSize) : na
+_lblBearEng = bearEngulf and confirmed ? label.new(bar_index, high, "Bear Engulf", style=label.style_label_down, color=color.new(color.red, 20), textcolor=color.white, size=lblSize) : na
+
+// Inside Bar
+_lblInside = insideBar and confirmed ? label.new(bar_index, high, "Inside", style=label.style_label_down, color=color.new(color.gray, 40), textcolor=color.white, size=lblSize) : na
+
+// Three Soldiers/Crows
+_lbl3Sold = threeSoldiers and confirmed ? label.new(bar_index, low, "3 Soldiers", style=label.style_label_up, color=color.new(color.lime, 20), textcolor=color.white, size=lblSize) : na
+_lbl3Crow = threeCrows and confirmed ? label.new(bar_index, high, "3 Crows", style=label.style_label_down, color=color.new(color.red, 20), textcolor=color.white, size=lblSize) : na
+
+// Morning/Evening Star
+_lblMorn = morningStar and confirmed ? label.new(bar_index, low, "Morning Star", style=label.style_label_up, color=color.new(color.aqua, 20), textcolor=color.white, size=lblSize) : na
+_lblEve = eveningStar and confirmed ? label.new(bar_index, high, "Evening Star", style=label.style_label_down, color=color.new(color.orange, 20), textcolor=color.white, size=lblSize) : na
+
+// ---------- Background Highlight ----------
+bullPattern = hammer or bullEngulf or marubozuBull or threeSoldiers or morningStar
+bearPattern = shootingStar or bearEngulf or marubozuBear or threeCrows or eveningStar
+
+bgcolor(showBullBg and bullPattern ? color.new(color.green, 85) : na, title="Bullish BG")
+bgcolor(showBearBg and bearPattern ? color.new(color.red, 85) : na, title="Bearish BG")
+
+// ---------- Alerts ----------
+alertcondition(bullPattern, title="Bullish candle pattern", message="Bullish candlestick pattern di {{ticker}} {{interval}}")
+alertcondition(bearPattern, title="Bearish candle pattern", message="Bearish candlestick pattern di {{ticker}} {{interval}}")
+alertcondition(doji, title="Doji detected", message="Doji di {{ticker}} {{interval}}")
+alertcondition(bullEngulf or bearEngulf, title="Engulfing pattern", message="Engulfing pattern di {{ticker}} {{interval}}")
+alertcondition(hammer or shootingStar, title="Pin Bar", message="Pin Bar di {{ticker}} {{interval}}")
