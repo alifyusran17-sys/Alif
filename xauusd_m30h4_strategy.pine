@@ -1,0 +1,124 @@
+//@version=6
+strategy("XAUUSD M30+H4 Confirmation Strategy", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=2, commission_type=strategy.commission.percent, commission_value=0.003, slippage=2, pyramiding=0, process_orders_on_close=true, calc_on_every_tick=false)
+
+// ============================================================
+// Versi 30m entry + H4 bias untuk broker/plan yang batasi TF.
+// Pasang di chart M30 XAUUSD. Buka tab "Strategy Tester".
+// Sinyal jauh lebih jarang (~1-3 per bulan) tapi kualitas lebih baik.
+// ============================================================
+
+// ---------- Input ----------
+grpBias = "Bias (H4)"
+emaFastLen = input.int(50, "EMA Fast (H4)", minval=5, group=grpBias)
+emaSlowLen = input.int(200, "EMA Slow (H4)", minval=20, group=grpBias)
+
+grpEntry = "Entry (M30)"
+emaPullLen = input.int(20, "EMA Pullback (M30)", minval=5, group=grpEntry)
+pullbackTolATR = input.float(0.5, "Toleransi pullback (x ATR)", minval=0.1, step=0.1, group=grpEntry)
+
+grpConf = "Candle Konfirmasi"
+useEngulf = input.bool(true, "Bullish/Bearish Engulfing", group=grpConf)
+usePin = input.bool(true, "Pin Bar (wick >= 2x body)", group=grpConf)
+pinRatio = input.float(2.0, "Rasio wick/body pin bar", minval=1.5, step=0.1, group=grpConf)
+
+grpRisk = "Risk / Reward"
+atrLen = input.int(14, "ATR Length", minval=5, group=grpRisk)
+slBufATR = input.float(0.3, "Buffer SL (x ATR)", minval=0.0, step=0.1, group=grpRisk)
+rrRatio = input.float(2.0, "Risk : Reward", minval=0.5, step=0.1, group=grpRisk)
+minAtrPips = input.float(6.0, "ATR Minimum (USD)", minval=0.0, step=0.5, group=grpRisk)
+riskPct = input.float(1.0, "Risk per trade (% equity)", minval=0.1, step=0.1, group=grpRisk)
+
+grpSess = "Filter Sesi"
+useSess = input.bool(true, "Aktifkan filter sesi London + NY", group=grpSess)
+sessSpec = input.session("1300-2359", "Sesi aktif (waktu chart)", group=grpSess)
+
+grpBt = "Backtest Window"
+btFrom = input.time(timestamp("2024-01-01 00:00"), "Backtest From", group=grpBt)
+btTo = input.time(timestamp("2030-01-01 00:00"), "Backtest To", group=grpBt)
+
+// ---------- Data H4 (bias) ----------
+[emaFast240, emaSlow240] = request.security(syminfo.tickerid, "240", [ta.ema(close, emaFastLen), ta.ema(close, emaSlowLen)], lookahead=barmerge.lookahead_off)
+
+biasBull = emaFast240 > emaSlow240 and close > emaFast240
+biasBear = emaFast240 < emaSlow240 and close < emaFast240
+
+// ---------- Data M30 ----------
+emaPull = ta.ema(close, emaPullLen)
+atr = ta.atr(atrLen)
+
+touchedNow = (low <= emaPull + pullbackTolATR * atr and low >= emaPull - pullbackTolATR * atr) or (high >= emaPull - pullbackTolATR * atr and high <= emaPull + pullbackTolATR * atr)
+touchedPrev = (low[1] <= emaPull[1] + pullbackTolATR * atr[1] and low[1] >= emaPull[1] - pullbackTolATR * atr[1]) or (high[1] >= emaPull[1] - pullbackTolATR * atr[1] and high[1] <= emaPull[1] + pullbackTolATR * atr[1])
+pulledBack = touchedNow or touchedPrev
+
+// ---------- Candle konfirmasi ----------
+bodyHi = math.max(open, close)
+bodyLo = math.min(open, close)
+body = bodyHi - bodyLo
+upperWick = high - bodyHi
+lowerWick = bodyLo - low
+
+bullEngulf = useEngulf and close > open and close[1] < open[1] and close >= open[1] and open <= close[1] and body > body[1]
+bearEngulf = useEngulf and close < open and close[1] > open[1] and close <= open[1] and open >= close[1] and body > body[1]
+
+bullPin = usePin and body > 0 and lowerWick >= pinRatio * body and upperWick <= body and close > open
+bearPin = usePin and body > 0 and upperWick >= pinRatio * body and lowerWick <= body and close < open
+
+bullConf = bullEngulf or bullPin
+bearConf = bearEngulf or bearPin
+
+// ---------- Filter ----------
+atrOk = atr >= minAtrPips
+inSess = not useSess or not na(time(timeframe.period, sessSpec))
+inWindow = time >= btFrom and time <= btTo
+
+longSig = biasBull and pulledBack and bullConf and atrOk and inSess and inWindow
+shortSig = biasBear and pulledBack and bearConf and atrOk and inSess and inWindow
+
+// ---------- Hitung SL / TP / Size ----------
+longSLcalc = low - slBufATR * atr
+longTPcalc = close + rrRatio * (close - longSLcalc)
+shortSLcalc = high + slBufATR * atr
+shortTPcalc = close - rrRatio * (shortSLcalc - close)
+
+riskDollar = strategy.equity * riskPct / 100
+longStopDist = math.max(close - longSLcalc, syminfo.mintick)
+shortStopDist = math.max(shortSLcalc - close, syminfo.mintick)
+longQty = riskDollar / longStopDist
+shortQty = riskDollar / shortStopDist
+
+longEntryCond = longSig and strategy.position_size == 0
+shortEntryCond = shortSig and strategy.position_size == 0
+
+// ---------- Simpan SL/TP saat sinyal (ternary) ----------
+var float longSL = na
+var float longTP = na
+var float shortSL = na
+var float shortTP = na
+
+longSL := longEntryCond ? longSLcalc : longSL
+longTP := longEntryCond ? longTPcalc : longTP
+shortSL := shortEntryCond ? shortSLcalc : shortSL
+shortTP := shortEntryCond ? shortTPcalc : shortTP
+
+// ---------- Entry & Exit ----------
+if longEntryCond
+    strategy.entry("LONG", strategy.long, qty=longQty)
+
+if shortEntryCond
+    strategy.entry("SHORT", strategy.short, qty=shortQty)
+
+strategy.exit("L-Exit", from_entry="LONG", stop=longSL, limit=longTP)
+strategy.exit("S-Exit", from_entry="SHORT", stop=shortSL, limit=shortTP)
+
+// ---------- Plot ----------
+plot(emaPull, "EMA Pullback M30", color=color.new(color.orange, 0))
+plot(emaFast240, "EMA50 H4", color=color.new(color.aqua, 0), linewidth=2)
+plot(emaSlow240, "EMA200 H4", color=color.new(color.fuchsia, 0), linewidth=2)
+bgcolor(biasBull ? color.new(color.green, 92) : biasBear ? color.new(color.red, 92) : na)
+
+plotshape(longSig, title="LONG", location=location.belowbar, style=shape.triangleup, color=color.lime, size=size.small)
+plotshape(shortSig, title="SHORT", location=location.abovebar, style=shape.triangledown, color=color.red, size=size.small)
+
+// ---------- Alert ----------
+alertcondition(longEntryCond, title="XAUUSD LONG entry", message='{"symbol":"{{ticker}}","side":"LONG","tf":"{{interval}}","price":"{{close}}"}')
+alertcondition(shortEntryCond, title="XAUUSD SHORT entry", message='{"symbol":"{{ticker}}","side":"SHORT","tf":"{{interval}}","price":"{{close}}"}')
