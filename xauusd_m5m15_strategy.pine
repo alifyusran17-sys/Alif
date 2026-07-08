@@ -2,9 +2,9 @@
 strategy("XAUUSD M5+M15 Confirmation Strategy", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=2, commission_type=strategy.commission.percent, commission_value=0.003, slippage=2, pyramiding=0, process_orders_on_close=true, calc_on_every_tick=false)
 
 // ============================================================
-// Strategy tester version untuk backtest di TradingView.
+// Strategy tester version - ZERO if-blocks, semua top-level.
 // Pasang di chart M5 XAUUSD, buka tab "Strategy Tester".
-// Setiap if-block hanya isi 1 baris (tahan paste HP).
+// qty=0 pada strategy.entry berarti tidak buka posisi (skip).
 // ============================================================
 
 // ---------- Input ----------
@@ -86,32 +86,28 @@ shortStopDist = math.max(shortSLcalc - close, syminfo.mintick)
 longQty = riskDollar / longStopDist
 shortQty = riskDollar / shortStopDist
 
-// ---------- Simpan SL/TP saat sinyal (ternary, no if-block) ----------
+longEntryCond = longSig and strategy.position_size == 0
+shortEntryCond = shortSig and strategy.position_size == 0
+
+// ---------- Simpan SL/TP saat sinyal (ternary) ----------
 var float longSL = na
 var float longTP = na
 var float shortSL = na
 var float shortTP = na
-
-longEntryCond = longSig and strategy.position_size == 0
-shortEntryCond = shortSig and strategy.position_size == 0
 
 longSL := longEntryCond ? longSLcalc : longSL
 longTP := longEntryCond ? longTPcalc : longTP
 shortSL := shortEntryCond ? shortSLcalc : shortSL
 shortTP := shortEntryCond ? shortTPcalc : shortTP
 
-// ---------- Execute: setiap if-block cuma 1 baris ----------
-if longEntryCond
-    strategy.entry("LONG", strategy.long, qty=longQty)
-
-if shortEntryCond
-    strategy.entry("SHORT", strategy.short, qty=shortQty)
-
-// Exit orders di top-level (tidak dalam if-block, aktif tiap bar)
+// ---------- Entry & Exit di TOP LEVEL (no if-block) ----------
+// qty=0 = skip entry. Ini legal di Pine dan tidak buka posisi.
+strategy.entry("LONG", strategy.long, qty=longEntryCond ? longQty : 0)
+strategy.entry("SHORT", strategy.short, qty=shortEntryCond ? shortQty : 0)
 strategy.exit("L-Exit", from_entry="LONG", stop=longSL, limit=longTP)
 strategy.exit("S-Exit", from_entry="SHORT", stop=shortSL, limit=shortTP)
 
-// ---------- Plot ----------
+// ---------- Plot (semua top-level) ----------
 plot(emaPull, "EMA Pullback M5", color=color.new(color.orange, 0))
 plot(emaFast15, "EMA50 M15", color=color.new(color.aqua, 0), linewidth=2)
 plot(emaSlow15, "EMA200 M15", color=color.new(color.fuchsia, 0), linewidth=2)
