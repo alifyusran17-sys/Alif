@@ -100,10 +100,14 @@ longTP := longEntryCond ? longTPcalc : longTP
 shortSL := shortEntryCond ? shortSLcalc : shortSL
 shortTP := shortEntryCond ? shortTPcalc : shortTP
 
-// ---------- Entry & Exit di TOP LEVEL (no if-block) ----------
-// qty=0 = skip entry. Ini legal di Pine dan tidak buka posisi.
-strategy.entry("LONG", strategy.long, qty=longEntryCond ? longQty : 0)
-strategy.entry("SHORT", strategy.short, qty=shortEntryCond ? shortQty : 0)
+// ---------- Entry & Exit ----------
+// Paste di browser desktop (bukan Pine Editor HP) supaya indent tidak rusak.
+if longEntryCond
+    strategy.entry("LONG", strategy.long, qty=longQty)
+
+if shortEntryCond
+    strategy.entry("SHORT", strategy.short, qty=shortQty)
+
 strategy.exit("L-Exit", from_entry="LONG", stop=longSL, limit=longTP)
 strategy.exit("S-Exit", from_entry="SHORT", stop=shortSL, limit=shortTP)
 
