@@ -2,9 +2,9 @@
 indicator("XAUUSD Scalping EMA Pullback M5", overlay=true, max_labels_count=500)
 
 // ============================================================
-// Live scalping indicator (M5 EMA Pullback + Candle Konfirmasi)
-// Pasang di chart M5 XAUUSD. Bias otomatis dari M15.
-// Setiap sinyal muncul dengan label lengkap: Entry/SL/TP/Pattern.
+// Live scalping indicator - EMA Pullback + Candle Konfirmasi
+// V3 - match dengan strategy tester version
+// SL/TP dalam TICKS untuk konsistensi backtest vs live.
 // ============================================================
 
 // ---------- Input ----------
@@ -21,8 +21,8 @@ useEngulf = input.bool(true, "Bullish/Bearish Engulfing", group=grpConf)
 usePin = input.bool(true, "Pin Bar / Hammer / Shooting Star", group=grpConf)
 pinRatio = input.float(2.0, "Rasio wick/body pin bar", minval=1.5, step=0.1, group=grpConf)
 
-grpRisk = "Risk / Reward"
-slPips = input.float(10.0, "SL (pips = $0.10)", minval=3.0, step=1.0, group=grpRisk)
+grpRisk = "Risk / Reward (TICKS)"
+slTicks = input.int(250, "SL (ticks — 100 ticks = 10 pips = $1)", minval=10, step=10, group=grpRisk, tooltip="Default 250 ticks = 25 pips = $2.50 (matched dengan setting profitable)")
 rrRatio = input.float(2.0, "Risk : Reward", minval=1.0, step=0.25, group=grpRisk)
 
 grpFilt = "Filter"
@@ -70,15 +70,15 @@ inSess = not useSess or not na(time(timeframe.period, sessSpec))
 longSig = biasBull and pulledBack and bullConf and atrOk and inSess and barstate.isconfirmed
 shortSig = biasBear and pulledBack and bearConf and atrOk and inSess and barstate.isconfirmed
 
-// ---------- SL/TP dalam Harga ----------
-pipSize = syminfo.mintick * 10
-slDist = slPips * pipSize
-tpDist = slDist * rrRatio
+// ---------- SL/TP dalam Harga (konversi dari ticks) ----------
+tickSize = syminfo.mintick
+slPriceDist = slTicks * tickSize
+tpPriceDist = slPriceDist * rrRatio
 
-longSLcalc = close - slDist
-longTPcalc = close + tpDist
-shortSLcalc = close + slDist
-shortTPcalc = close - tpDist
+longSLcalc = close - slPriceDist
+longTPcalc = close + tpPriceDist
+shortSLcalc = close + slPriceDist
+shortTPcalc = close - tpPriceDist
 
 var float entryPrice = na
 var float stopLoss = na
@@ -90,9 +90,7 @@ entryPrice := longSig or shortSig ? close : entryPrice
 stopLoss := longSig ? longSLcalc : shortSig ? shortSLcalc : stopLoss
 takeProfit := longSig ? longTPcalc : shortSig ? shortTPcalc : takeProfit
 sigDir := longSig ? 1 : shortSig ? -1 : sigDir
-
-// Nama pattern
-pattName := longSig and bullEngulf ? "Bull Engulf" : longSig and bullPin ? "Bull Pin/Hammer" : shortSig and bearEngulf ? "Bear Engulf" : shortSig and bearPin ? "Bear Pin/Shoot Star" : pattName
+pattName := longSig and bullEngulf ? "Bull Engulf" : longSig and bullPin ? "Bull Pin/Hammer" : shortSig and bearEngulf ? "Bear Engulf" : shortSig and bearPin ? "Bear Pin/Shoot" : pattName
 
 // ---------- Plot ----------
 plot(emaPull, "EMA9 M5", color=color.new(color.orange, 0), linewidth=1)
@@ -107,10 +105,9 @@ plot(sigDir != 0 ? entryPrice : na, "Entry", color=color.yellow, style=plot.styl
 plot(sigDir != 0 ? stopLoss : na, "SL", color=color.red, style=plot.style_linebr, linewidth=1)
 plot(sigDir != 0 ? takeProfit : na, "TP", color=color.new(color.lime, 0), style=plot.style_linebr, linewidth=1)
 
-// Label lengkap saat sinyal
-slPipDisplay = str.tostring(math.abs(entryPrice - stopLoss) / pipSize, "#.#")
-tpPipDisplay = str.tostring(math.abs(takeProfit - entryPrice) / pipSize, "#.#")
-lblTxt = "Entry: " + str.tostring(entryPrice, format.mintick) + "\nSL: " + str.tostring(stopLoss, format.mintick) + " (" + slPipDisplay + " pips)" + "\nTP: " + str.tostring(takeProfit, format.mintick) + " (" + tpPipDisplay + " pips)" + "\nRR 1:" + str.tostring(rrRatio, "#.##") + "\nPattern: " + pattName + "\nATR: " + str.tostring(atr, "#.##")
+slPipDisp = str.tostring(slTicks / 10, "#") + " pips"
+tpPipDisp = str.tostring(int(slTicks * rrRatio) / 10, "#") + " pips"
+lblTxt = "Entry: " + str.tostring(entryPrice, format.mintick) + "\nSL: " + str.tostring(stopLoss, format.mintick) + " (" + slPipDisp + ")" + "\nTP: " + str.tostring(takeProfit, format.mintick) + " (" + tpPipDisp + ")" + "\nRR 1:" + str.tostring(rrRatio, "#.##") + "\nPattern: " + pattName + "\nATR: " + str.tostring(atr, "#.##")
 
 lblId = longSig ? label.new(bar_index, low, lblTxt, style=label.style_label_up, color=color.new(color.lime, 20), textcolor=color.white, size=size.small) : shortSig ? label.new(bar_index, high, lblTxt, style=label.style_label_down, color=color.new(color.red, 20), textcolor=color.white, size=size.small) : na
 
