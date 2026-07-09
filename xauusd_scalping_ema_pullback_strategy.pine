@@ -1,10 +1,12 @@
 //@version=6
-strategy("XAUUSD Scalping EMA Pullback M5", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=2, commission_type=strategy.commission.percent, commission_value=0.003, slippage=3, pyramiding=0, process_orders_on_close=true, calc_on_every_tick=false)
+strategy("XAUUSD Scalping EMA Pullback M5", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=5, commission_type=strategy.commission.percent, commission_value=0.003, pyramiding=0)
 
 // ============================================================
 // XAUUSD Scalping M5 - EMA Pullback + Candle Confirmation
-// Simplified: pakai default position sizing (2% equity per trade)
-// SL/TP diinject langsung ke strategy.exit di dalam if-block yang sama.
+// V3: pakai profit/loss dalam TICKS (paling reliable)
+// - Broker-agnostic
+// - Tidak tergantung syminfo.mintick calc
+// - Hindari process_orders_on_close bug
 // ============================================================
 
 // ---------- Input ----------
@@ -21,8 +23,8 @@ useEngulf = input.bool(true, "Bullish/Bearish Engulfing", group=grpConf)
 usePin = input.bool(true, "Pin Bar / Hammer / Shooting Star", group=grpConf)
 pinRatio = input.float(2.0, "Rasio wick/body pin bar", minval=1.5, step=0.1, group=grpConf)
 
-grpRisk = "Risk / Reward"
-slPips = input.float(10.0, "SL (pips = $0.10)", minval=3.0, step=1.0, group=grpRisk)
+grpRisk = "Risk / Reward (dalam TICKS)"
+slTicks = input.int(100, "SL (ticks — 100 ticks XAUUSD = 10 pips = $1)", minval=10, step=10, group=grpRisk, tooltip="1 tick XAUUSD FOREX.com = $0.01. 100 ticks = $1 = 10 pips.")
 rrRatio = input.float(2.0, "Risk : Reward", minval=1.0, step=0.25, group=grpRisk)
 
 grpFilt = "Filter"
@@ -31,8 +33,8 @@ minAtrUsd = input.float(0.5, "ATR Minimum (USD)", minval=0.0, step=0.1, group=gr
 cooldownBars = input.int(6, "Cooldown setelah exit (bars)", minval=0, group=grpFilt)
 
 grpSess = "Filter Sesi"
-useSess = input.bool(true, "Filter sesi London + NY", group=grpSess)
-sessSpec = input.session("1300-2359", "Sesi aktif (waktu chart)", group=grpSess)
+useSess = input.bool(false, "Filter sesi London + NY (default OFF)", group=grpSess)
+sessSpec = input.session("1300-2359", "Sesi aktif", group=grpSess)
 
 grpBt = "Backtest Window"
 btFrom = input.time(timestamp("2024-01-01 00:00"), "Backtest From", group=grpBt)
@@ -82,28 +84,20 @@ justExited = strategy.position_size[1] != 0 and strategy.position_size == 0
 lastExitBar := justExited ? bar_index : lastExitBar
 cooldownOk = bar_index - lastExitBar >= cooldownBars
 
-// ---------- SL/TP ----------
-// XAUUSD 1 pip = $0.10 (broker 2-digit). slPips=10 → SL/TP $1 dari entry.
-pipSize = syminfo.mintick * 10
-slDist = slPips * pipSize
-tpDist = slDist * rrRatio
-
-longSL = close - slDist
-longTP = close + tpDist
-shortSL = close + slDist
-shortTP = close - tpDist
-
 longEntryCond = longSig and cooldownOk and strategy.position_size == 0
 shortEntryCond = shortSig and cooldownOk and strategy.position_size == 0
 
-// ---------- Execute (SL/TP di dalam if-block yang sama) ----------
+// ---------- TP dalam TICKS ----------
+tpTicks = int(math.round(slTicks * rrRatio))
+
+// ---------- Execute ----------
 if longEntryCond
     strategy.entry("LONG", strategy.long)
-    strategy.exit("L-Exit", from_entry="LONG", stop=longSL, limit=longTP)
+    strategy.exit("L-Exit", from_entry="LONG", profit=tpTicks, loss=slTicks)
 
 if shortEntryCond
     strategy.entry("SHORT", strategy.short)
-    strategy.exit("S-Exit", from_entry="SHORT", stop=shortSL, limit=shortTP)
+    strategy.exit("S-Exit", from_entry="SHORT", profit=tpTicks, loss=slTicks)
 
 // ---------- Plot ----------
 plot(emaPull, "EMA9 M5", color=color.new(color.orange, 0), linewidth=1)
