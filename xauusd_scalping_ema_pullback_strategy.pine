@@ -1,47 +1,38 @@
 //@version=6
-strategy("XAUUSD Scalping EMA Pullback M5", overlay=true, initial_capital=10000, default_qty_type=strategy.fixed, default_qty_value=1, commission_type=strategy.commission.percent, commission_value=0.003, slippage=3, pyramiding=0, process_orders_on_close=true, calc_on_every_tick=false)
+strategy("XAUUSD Scalping EMA Pullback M5", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=2, commission_type=strategy.commission.percent, commission_value=0.003, slippage=3, pyramiding=0, process_orders_on_close=true, calc_on_every_tick=false)
 
 // ============================================================
 // XAUUSD Scalping M5 - EMA Pullback + Candle Confirmation
-// Konsep:
-//   1. Bias trend dari M15 (EMA 50)
-//   2. Entry saat harga pullback ke EMA 9 M5
-//   3. Konfirmasi WAJIB: Bullish/Bearish Engulfing atau Pin Bar
-//   4. SL/TP dalam pips (default 10/20 = RR 1:2)
-// Pasang di chart M5 XAUUSD. Backtest dulu sebelum live scalping.
+// Simplified: pakai default position sizing (2% equity per trade)
+// SL/TP diinject langsung ke strategy.exit di dalam if-block yang sama.
 // ============================================================
 
-// ---------- Input: Bias ----------
+// ---------- Input ----------
 grpBias = "Bias Trend (M15)"
 biasTF = input.timeframe("15", "Bias Timeframe", group=grpBias)
 biasEMALen = input.int(50, "EMA Trend M15", minval=10, group=grpBias)
 
-// ---------- Input: Entry Pullback ----------
 grpPull = "Pullback (M5)"
 pullEMALen = input.int(9, "EMA Pullback M5", minval=3, group=grpPull)
-pullTolATR = input.float(0.5, "Toleransi pullback (x ATR)", minval=0.1, step=0.1, group=grpPull, tooltip="Harga dianggap 'menyentuh' EMA9 jika low/high dalam N*ATR")
+pullTolATR = input.float(0.5, "Toleransi pullback (x ATR)", minval=0.1, step=0.1, group=grpPull)
 
-// ---------- Input: Candle Confirmation ----------
-grpConf = "Candle Konfirmasi (WAJIB)"
+grpConf = "Candle Konfirmasi"
 useEngulf = input.bool(true, "Bullish/Bearish Engulfing", group=grpConf)
 usePin = input.bool(true, "Pin Bar / Hammer / Shooting Star", group=grpConf)
 pinRatio = input.float(2.0, "Rasio wick/body pin bar", minval=1.5, step=0.1, group=grpConf)
 
-// ---------- Input: Risk Management ----------
 grpRisk = "Risk / Reward"
-slPips = input.float(10.0, "SL (pips = $0.10)", minval=3.0, step=1.0, group=grpRisk, tooltip="10 pips XAUUSD = $1")
+slPips = input.float(10.0, "SL (pips = $0.10)", minval=3.0, step=1.0, group=grpRisk)
 rrRatio = input.float(2.0, "Risk : Reward", minval=1.0, step=0.25, group=grpRisk)
-riskPct = input.float(0.5, "Risk per trade (% equity)", minval=0.1, step=0.1, group=grpRisk, tooltip="Scalping default 0.5% (lebih kecil karena sinyal sering)")
 
-// ---------- Input: Filter Tambahan ----------
-grpFilt = "Filter Tambahan"
+grpFilt = "Filter"
 atrLen = input.int(14, "ATR Length", minval=5, group=grpFilt)
-minAtrUsd = input.float(0.5, "ATR Minimum (USD)", minval=0.0, step=0.1, group=grpFilt, tooltip="Skip kalau market sepi (ATR M5 < N)")
-cooldownBars = input.int(6, "Cooldown setelah exit (bars)", minval=0, group=grpFilt, tooltip="6 bar = 30 menit cooldown")
+minAtrUsd = input.float(0.5, "ATR Minimum (USD)", minval=0.0, step=0.1, group=grpFilt)
+cooldownBars = input.int(6, "Cooldown setelah exit (bars)", minval=0, group=grpFilt)
 
-grpSess = "Filter Sesi (waktu chart)"
+grpSess = "Filter Sesi"
 useSess = input.bool(true, "Filter sesi London + NY", group=grpSess)
-sessSpec = input.session("1300-2359", "Sesi aktif", group=grpSess)
+sessSpec = input.session("1300-2359", "Sesi aktif (waktu chart)", group=grpSess)
 
 grpBt = "Backtest Window"
 btFrom = input.time(timestamp("2024-01-01 00:00"), "Backtest From", group=grpBt)
@@ -56,7 +47,6 @@ biasBear = close < emaBias15
 emaPull = ta.ema(close, pullEMALen)
 atr = ta.atr(atrLen)
 
-// Pullback detection
 touchedNow = (low <= emaPull + pullTolATR * atr and low >= emaPull - pullTolATR * atr) or (high >= emaPull - pullTolATR * atr and high <= emaPull + pullTolATR * atr)
 touchedPrev = (low[1] <= emaPull[1] + pullTolATR * atr[1] and low[1] >= emaPull[1] - pullTolATR * atr[1]) or (high[1] >= emaPull[1] - pullTolATR * atr[1] and high[1] <= emaPull[1] + pullTolATR * atr[1])
 pulledBack = touchedNow or touchedPrev
@@ -92,47 +82,28 @@ justExited = strategy.position_size[1] != 0 and strategy.position_size == 0
 lastExitBar := justExited ? bar_index : lastExitBar
 cooldownOk = bar_index - lastExitBar >= cooldownBars
 
-// ---------- SL/TP dalam Harga ----------
-// 10 pips XAUUSD = $0.10 harga move (1 pip = $0.01 di broker 2-digit gold)
-// Convert pips ke price: slPips * 0.01 * 10 = slPips / 10 (untuk 2-digit)
-// Aman: pakai syminfo.mintick * slPips * 10 supaya adaptive ke broker
+// ---------- SL/TP ----------
+// XAUUSD 1 pip = $0.10 (broker 2-digit). slPips=10 → SL/TP $1 dari entry.
 pipSize = syminfo.mintick * 10
 slDist = slPips * pipSize
 tpDist = slDist * rrRatio
 
-longSLcalc = close - slDist
-longTPcalc = close + tpDist
-shortSLcalc = close + slDist
-shortTPcalc = close - tpDist
-
-// ---------- Position Sizing (simple fixed qty) ----------
-// Sizing berbasis risk% menyebabkan qty ambigu di beberapa broker feed
-// Solusi: pakai fixed qty, hitung risk manual di journal berdasar SL pips
-scalpQty = math.max(1.0, (strategy.equity * riskPct / 100) / math.max(slPips * syminfo.mintick * 10, syminfo.mintick))
+longSL = close - slDist
+longTP = close + tpDist
+shortSL = close + slDist
+shortTP = close - tpDist
 
 longEntryCond = longSig and cooldownOk and strategy.position_size == 0
 shortEntryCond = shortSig and cooldownOk and strategy.position_size == 0
 
-// ---------- Simpan SL/TP ----------
-var float longSL = na
-var float longTP = na
-var float shortSL = na
-var float shortTP = na
-
-longSL := longEntryCond ? longSLcalc : longSL
-longTP := longEntryCond ? longTPcalc : longTP
-shortSL := shortEntryCond ? shortSLcalc : shortSL
-shortTP := shortEntryCond ? shortTPcalc : shortTP
-
-// ---------- Execute ----------
+// ---------- Execute (SL/TP di dalam if-block yang sama) ----------
 if longEntryCond
-    strategy.entry("LONG", strategy.long, qty=scalpQty)
+    strategy.entry("LONG", strategy.long)
+    strategy.exit("L-Exit", from_entry="LONG", stop=longSL, limit=longTP)
 
 if shortEntryCond
-    strategy.entry("SHORT", strategy.short, qty=scalpQty)
-
-strategy.exit("L-Exit", from_entry="LONG", stop=longSL, limit=longTP)
-strategy.exit("S-Exit", from_entry="SHORT", stop=shortSL, limit=shortTP)
+    strategy.entry("SHORT", strategy.short)
+    strategy.exit("S-Exit", from_entry="SHORT", stop=shortSL, limit=shortTP)
 
 // ---------- Plot ----------
 plot(emaPull, "EMA9 M5", color=color.new(color.orange, 0), linewidth=1)
@@ -144,5 +115,5 @@ plotshape(longSig, title="LONG", location=location.belowbar, style=shape.triangl
 plotshape(shortSig, title="SHORT", location=location.abovebar, style=shape.triangledown, color=color.red, size=size.small)
 
 // ---------- Alert ----------
-alertcondition(longEntryCond, title="XAUUSD LONG Pullback Scalp", message='{"symbol":"{{ticker}}","side":"LONG","tf":"{{interval}}","price":"{{close}}"}')
-alertcondition(shortEntryCond, title="XAUUSD SHORT Pullback Scalp", message='{"symbol":"{{ticker}}","side":"SHORT","tf":"{{interval}}","price":"{{close}}"}')
+alertcondition(longEntryCond, title="XAUUSD LONG Scalp", message='{"symbol":"{{ticker}}","side":"LONG","tf":"{{interval}}","price":"{{close}}"}')
+alertcondition(shortEntryCond, title="XAUUSD SHORT Scalp", message='{"symbol":"{{ticker}}","side":"SHORT","tf":"{{interval}}","price":"{{close}}"}')
