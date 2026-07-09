@@ -24,16 +24,16 @@ usePin = input.bool(true, "Pin Bar / Hammer / Shooting Star", group=grpConf)
 pinRatio = input.float(2.0, "Rasio wick/body pin bar", minval=1.5, step=0.1, group=grpConf)
 
 grpRisk = "Risk / Reward (dalam TICKS)"
-slTicks = input.int(100, "SL (ticks — 100 ticks XAUUSD = 10 pips = $1)", minval=10, step=10, group=grpRisk, tooltip="1 tick XAUUSD FOREX.com = $0.01. 100 ticks = $1 = 10 pips.")
+slTicks = input.int(250, "SL (ticks — 100 ticks XAUUSD = 10 pips = $1)", minval=10, step=10, group=grpRisk, tooltip="Default 250 ticks = 25 pips = $2.50 (tuned profitable setting).")
 rrRatio = input.float(2.0, "Risk : Reward", minval=1.0, step=0.25, group=grpRisk)
 
 grpFilt = "Filter"
 atrLen = input.int(14, "ATR Length", minval=5, group=grpFilt)
 minAtrUsd = input.float(0.5, "ATR Minimum (USD)", minval=0.0, step=0.1, group=grpFilt)
-cooldownBars = input.int(6, "Cooldown setelah exit (bars)", minval=0, group=grpFilt)
+cooldownBars = input.int(12, "Cooldown setelah exit (bars)", minval=0, group=grpFilt, tooltip="Default 12 = 1 jam cooldown (tuned profitable setting).")
 
 grpSess = "Filter Sesi"
-useSess = input.bool(false, "Filter sesi London + NY (default OFF)", group=grpSess)
+useSess = input.bool(true, "Filter sesi London + NY", group=grpSess, tooltip="ON = skip Asia session (tuned profitable setting).")
 sessSpec = input.session("1300-2359", "Sesi aktif", group=grpSess)
 
 grpBt = "Backtest Window"
