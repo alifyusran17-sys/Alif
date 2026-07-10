@@ -1,0 +1,92 @@
+//@version=6
+indicator("XAUUSD Breakout Entry", overlay=true, max_labels_count=500)
+
+// ============================================================
+// XAUUSD Breakout Indicator (live trading version)
+// Sinyal saat harga break high/low N bar dengan momentum kuat
+// searah bias higher-timeframe.
+// ============================================================
+
+// ---------- Input ----------
+grpRange = "Range Breakout"
+lookback = input.int(20, "Range Lookback (bars)", minval=5, group=grpRange)
+minBodyPct = input.float(0.6, "Min Body %", minval=0.1, maxval=1.0, step=0.05, group=grpRange)
+
+grpBias = "Higher Timeframe Bias"
+biasTF = input.timeframe("240", "Bias Timeframe", group=grpBias)
+biasEMALen = input.int(100, "Bias EMA Length", minval=20, group=grpBias)
+
+grpRisk = "Risk / Reward"
+atrLen = input.int(14, "ATR Length", minval=5, group=grpRisk)
+slBufATR = input.float(0.5, "Buffer SL (x ATR)", minval=0.0, step=0.1, group=grpRisk)
+rrRatio = input.float(2.0, "Risk : Reward", minval=0.5, step=0.1, group=grpRisk)
+minAtrPips = input.float(4.0, "ATR Minimum (USD)", minval=0.0, step=0.5, group=grpRisk)
+
+grpSess = "Filter Sesi"
+useSess = input.bool(false, "Filter sesi (default OFF)", group=grpSess)
+sessSpec = input.session("1300-2359", "Sesi aktif", group=grpSess)
+
+// ---------- Higher Timeframe Bias ----------
+biasEMAval = request.security(syminfo.tickerid, biasTF, ta.ema(close, biasEMALen), lookahead=barmerge.lookahead_off)
+biasBull = close > biasEMAval
+biasBear = close < biasEMAval
+
+// ---------- Range Detection ----------
+prevHigh = ta.highest(high[1], lookback)
+prevLow = ta.lowest(low[1], lookback)
+
+// ---------- Candle Momentum ----------
+bodySize = math.abs(close - open)
+candleRange = high - low
+bodyPct = candleRange > 0 ? bodySize / candleRange : 0
+strongBody = bodyPct >= minBodyPct
+
+// ---------- Filter ----------
+atr = ta.atr(atrLen)
+atrOk = atr >= minAtrPips
+inSess = not useSess or not na(time(timeframe.period, sessSpec))
+
+// ---------- Sinyal ----------
+breakoutUp = close > prevHigh and close > open and strongBody
+breakoutDown = close < prevLow and close < open and strongBody
+
+longSig = breakoutUp and biasBull and atrOk and inSess and barstate.isconfirmed
+shortSig = breakoutDown and biasBear and atrOk and inSess and barstate.isconfirmed
+
+// ---------- SL / TP (ternary) ----------
+longSLcalc = prevLow - slBufATR * atr
+shortSLcalc = prevHigh + slBufATR * atr
+longTPcalc = close + rrRatio * (close - longSLcalc)
+shortTPcalc = close - rrRatio * (shortSLcalc - close)
+
+var float entryPrice = na
+var float stopLoss = na
+var float takeProfit = na
+var int sigDir = 0
+
+entryPrice := longSig or shortSig ? close : entryPrice
+stopLoss := longSig ? longSLcalc : shortSig ? shortSLcalc : stopLoss
+takeProfit := longSig ? longTPcalc : shortSig ? shortTPcalc : takeProfit
+sigDir := longSig ? 1 : shortSig ? -1 : sigDir
+
+// ---------- Plot ----------
+plot(prevHigh, "Range High", color=color.new(color.aqua, 40), linewidth=1)
+plot(prevLow, "Range Low", color=color.new(color.orange, 40), linewidth=1)
+plot(biasEMAval, "Bias EMA", color=color.new(color.fuchsia, 0), linewidth=2)
+
+bgcolor(biasBull ? color.new(color.green, 92) : biasBear ? color.new(color.red, 92) : na, title="Bias BG")
+
+plotshape(longSig, title="LONG Breakout", location=location.belowbar, style=shape.triangleup, color=color.new(color.lime, 0), size=size.small, text="LONG")
+plotshape(shortSig, title="SHORT Breakout", location=location.abovebar, style=shape.triangledown, color=color.new(color.red, 0), size=size.small, text="SHORT")
+
+plot(sigDir != 0 ? entryPrice : na, "Entry", color=color.yellow, style=plot.style_linebr, linewidth=1)
+plot(sigDir != 0 ? stopLoss : na, "SL", color=color.red, style=plot.style_linebr, linewidth=1)
+plot(sigDir != 0 ? takeProfit : na, "TP", color=color.new(color.lime, 0), style=plot.style_linebr, linewidth=1)
+
+lblTxt = "Entry: " + str.tostring(entryPrice, format.mintick) + "\nSL: " + str.tostring(stopLoss, format.mintick) + "\nTP: " + str.tostring(takeProfit, format.mintick) + "\nRR 1:" + str.tostring(rrRatio, "#.##")
+lblId = longSig ? label.new(bar_index, low, lblTxt, style=label.style_label_up, color=color.new(color.lime, 20), textcolor=color.white, size=size.small) : shortSig ? label.new(bar_index, high, lblTxt, style=label.style_label_down, color=color.new(color.red, 20), textcolor=color.white, size=size.small) : na
+
+// ---------- Alert ----------
+alertcondition(longSig, title="XAUUSD LONG breakout", message='{"symbol":"{{ticker}}","side":"LONG","tf":"{{interval}}","price":"{{close}}","time":"{{time}}"}')
+alertcondition(shortSig, title="XAUUSD SHORT breakout", message='{"symbol":"{{ticker}}","side":"SHORT","tf":"{{interval}}","price":"{{close}}","time":"{{time}}"}')
+alertcondition(longSig or shortSig, title="XAUUSD ANY breakout", message='XAUUSD {{ticker}} {{interval}} breakout pada {{close}}')

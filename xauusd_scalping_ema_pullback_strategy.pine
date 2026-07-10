@@ -1,0 +1,114 @@
+//@version=6
+strategy("XAUUSD Scalping EMA Pullback M5", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=5, commission_type=strategy.commission.percent, commission_value=0.003, pyramiding=0)
+
+// ============================================================
+// XAUUSD Scalping M5 - EMA Pullback + Candle Confirmation
+// V3: pakai profit/loss dalam TICKS (paling reliable)
+// - Broker-agnostic
+// - Tidak tergantung syminfo.mintick calc
+// - Hindari process_orders_on_close bug
+// ============================================================
+
+// ---------- Input ----------
+grpBias = "Bias Trend (M15)"
+biasTF = input.timeframe("15", "Bias Timeframe", group=grpBias)
+biasEMALen = input.int(50, "EMA Trend M15", minval=10, group=grpBias)
+
+grpPull = "Pullback (M5)"
+pullEMALen = input.int(9, "EMA Pullback M5", minval=3, group=grpPull)
+pullTolATR = input.float(0.5, "Toleransi pullback (x ATR)", minval=0.1, step=0.1, group=grpPull)
+
+grpConf = "Candle Konfirmasi"
+useEngulf = input.bool(true, "Bullish/Bearish Engulfing", group=grpConf)
+usePin = input.bool(true, "Pin Bar / Hammer / Shooting Star", group=grpConf)
+pinRatio = input.float(2.0, "Rasio wick/body pin bar", minval=1.5, step=0.1, group=grpConf)
+
+grpRisk = "Risk / Reward (dalam TICKS)"
+slTicks = input.int(250, "SL (ticks — 100 ticks XAUUSD = 10 pips = $1)", minval=10, step=10, group=grpRisk, tooltip="Default 250 ticks = 25 pips = $2.50 (tuned profitable setting).")
+rrRatio = input.float(2.0, "Risk : Reward", minval=1.0, step=0.25, group=grpRisk)
+
+grpFilt = "Filter"
+atrLen = input.int(14, "ATR Length", minval=5, group=grpFilt)
+minAtrUsd = input.float(0.5, "ATR Minimum (USD)", minval=0.0, step=0.1, group=grpFilt)
+cooldownBars = input.int(12, "Cooldown setelah exit (bars)", minval=0, group=grpFilt, tooltip="Default 12 = 1 jam cooldown (tuned profitable setting).")
+
+grpSess = "Filter Sesi"
+useSess = input.bool(true, "Filter sesi London + NY", group=grpSess, tooltip="ON = skip Asia session (tuned profitable setting).")
+sessSpec = input.session("1300-2359", "Sesi aktif (dibaca dalam WIB)", group=grpSess, tooltip="Default 1300-2359 = 13:00-23:59 WIB (Jakarta timezone)")
+sessTZ = input.string("Asia/Jakarta", "Session Timezone", options=["Asia/Jakarta", "Asia/Makassar", "UTC", "America/New_York", "Europe/London"], group=grpSess, tooltip="Pilih timezone untuk membaca sesi aktif. Default Asia/Jakarta (WIB).")
+
+grpBt = "Backtest Window"
+btFrom = input.time(timestamp("2024-01-01 00:00"), "Backtest From", group=grpBt)
+btTo = input.time(timestamp("2030-01-01 00:00"), "Backtest To", group=grpBt)
+
+// ---------- Data M15 Bias ----------
+emaBias15 = request.security(syminfo.tickerid, biasTF, ta.ema(close, biasEMALen), lookahead=barmerge.lookahead_off)
+biasBull = close > emaBias15
+biasBear = close < emaBias15
+
+// ---------- Data M5 ----------
+emaPull = ta.ema(close, pullEMALen)
+atr = ta.atr(atrLen)
+
+touchedNow = (low <= emaPull + pullTolATR * atr and low >= emaPull - pullTolATR * atr) or (high >= emaPull - pullTolATR * atr and high <= emaPull + pullTolATR * atr)
+touchedPrev = (low[1] <= emaPull[1] + pullTolATR * atr[1] and low[1] >= emaPull[1] - pullTolATR * atr[1]) or (high[1] >= emaPull[1] - pullTolATR * atr[1] and high[1] <= emaPull[1] + pullTolATR * atr[1])
+pulledBack = touchedNow or touchedPrev
+
+// ---------- Candle Konfirmasi ----------
+bodyHi = math.max(open, close)
+bodyLo = math.min(open, close)
+body = bodyHi - bodyLo
+upperWick = high - bodyHi
+lowerWick = bodyLo - low
+
+bullEngulf = useEngulf and close > open and close[1] < open[1] and close >= open[1] and open <= close[1] and body > body[1]
+bearEngulf = useEngulf and close < open and close[1] > open[1] and close <= open[1] and open >= close[1] and body > body[1]
+
+bullPin = usePin and body > 0 and lowerWick >= pinRatio * body and upperWick <= body
+bearPin = usePin and body > 0 and upperWick >= pinRatio * body and lowerWick <= body
+
+bullConf = bullEngulf or bullPin
+bearConf = bearEngulf or bearPin
+
+// ---------- Filter ----------
+atrOk = atr >= minAtrUsd
+inSess = not useSess or not na(time(timeframe.period, sessSpec, sessTZ))
+inWindow = time >= btFrom and time <= btTo
+
+// ---------- Sinyal ----------
+longSig = biasBull and pulledBack and bullConf and atrOk and inSess and inWindow
+shortSig = biasBear and pulledBack and bearConf and atrOk and inSess and inWindow
+
+// ---------- Cooldown ----------
+var int lastExitBar = -1000
+justExited = strategy.position_size[1] != 0 and strategy.position_size == 0
+lastExitBar := justExited ? bar_index : lastExitBar
+cooldownOk = bar_index - lastExitBar >= cooldownBars
+
+longEntryCond = longSig and cooldownOk and strategy.position_size == 0
+shortEntryCond = shortSig and cooldownOk and strategy.position_size == 0
+
+// ---------- TP dalam TICKS ----------
+tpTicks = int(math.round(slTicks * rrRatio))
+
+// ---------- Execute ----------
+if longEntryCond
+    strategy.entry("LONG", strategy.long)
+    strategy.exit("L-Exit", from_entry="LONG", profit=tpTicks, loss=slTicks)
+
+if shortEntryCond
+    strategy.entry("SHORT", strategy.short)
+    strategy.exit("S-Exit", from_entry="SHORT", profit=tpTicks, loss=slTicks)
+
+// ---------- Plot ----------
+plot(emaPull, "EMA9 M5", color=color.new(color.orange, 0), linewidth=1)
+plot(emaBias15, "EMA50 M15", color=color.new(color.aqua, 0), linewidth=2)
+
+bgcolor(biasBull ? color.new(color.green, 92) : biasBear ? color.new(color.red, 92) : na)
+
+plotshape(longSig, title="LONG", location=location.belowbar, style=shape.triangleup, color=color.lime, size=size.small)
+plotshape(shortSig, title="SHORT", location=location.abovebar, style=shape.triangledown, color=color.red, size=size.small)
+
+// ---------- Alert ----------
+alertcondition(longEntryCond, title="XAUUSD LONG Scalp", message='{"symbol":"{{ticker}}","side":"LONG","tf":"{{interval}}","price":"{{close}}"}')
+alertcondition(shortEntryCond, title="XAUUSD SHORT Scalp", message='{"symbol":"{{ticker}}","side":"SHORT","tf":"{{interval}}","price":"{{close}}"}')
