@@ -34,7 +34,8 @@ cooldownBars = input.int(12, "Cooldown setelah exit (bars)", minval=0, group=grp
 
 grpSess = "Filter Sesi"
 useSess = input.bool(true, "Filter sesi London + NY", group=grpSess, tooltip="ON = skip Asia session (tuned profitable setting).")
-sessSpec = input.session("1300-2359", "Sesi aktif", group=grpSess)
+sessSpec = input.session("1300-2359", "Sesi aktif (dibaca dalam WIB)", group=grpSess, tooltip="Default 1300-2359 = 13:00-23:59 WIB (Jakarta timezone)")
+sessTZ = input.string("Asia/Jakarta", "Session Timezone", options=["Asia/Jakarta", "Asia/Makassar", "UTC", "America/New_York", "Europe/London"], group=grpSess, tooltip="Pilih timezone untuk membaca sesi aktif. Default Asia/Jakarta (WIB).")
 
 grpBt = "Backtest Window"
 btFrom = input.time(timestamp("2024-01-01 00:00"), "Backtest From", group=grpBt)
@@ -71,7 +72,7 @@ bearConf = bearEngulf or bearPin
 
 // ---------- Filter ----------
 atrOk = atr >= minAtrUsd
-inSess = not useSess or not na(time(timeframe.period, sessSpec))
+inSess = not useSess or not na(time(timeframe.period, sessSpec, sessTZ))
 inWindow = time >= btFrom and time <= btTo
 
 // ---------- Sinyal ----------

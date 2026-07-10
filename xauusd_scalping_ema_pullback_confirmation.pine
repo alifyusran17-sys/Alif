@@ -31,7 +31,8 @@ minAtrUsd = input.float(0.5, "ATR Minimum (USD)", minval=0.0, step=0.1, group=gr
 
 grpSess = "Filter Sesi"
 useSess = input.bool(true, "Filter sesi London + NY", group=grpSess)
-sessSpec = input.session("1300-2359", "Sesi aktif", group=grpSess)
+sessSpec = input.session("1300-2359", "Sesi aktif (dibaca dalam WIB)", group=grpSess, tooltip="Default 1300-2359 = 13:00-23:59 WIB (Jakarta timezone)")
+sessTZ = input.string("Asia/Jakarta", "Session Timezone", options=["Asia/Jakarta", "Asia/Makassar", "UTC", "America/New_York", "Europe/London"], group=grpSess, tooltip="Pilih timezone untuk membaca sesi aktif. Default Asia/Jakarta (WIB).")
 
 // ---------- Data M15 Bias ----------
 emaBias15 = request.security(syminfo.tickerid, biasTF, ta.ema(close, biasEMALen), lookahead=barmerge.lookahead_off)
@@ -64,7 +65,7 @@ bearConf = bearEngulf or bearPin
 
 // ---------- Filter ----------
 atrOk = atr >= minAtrUsd
-inSess = not useSess or not na(time(timeframe.period, sessSpec))
+inSess = not useSess or not na(time(timeframe.period, sessSpec, sessTZ))
 
 // ---------- Sinyal ----------
 longSig = biasBull and pulledBack and bullConf and atrOk and inSess and barstate.isconfirmed
